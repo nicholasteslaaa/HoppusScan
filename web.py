@@ -3,16 +3,13 @@ import time
 import threading
 from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
-# from detection import workspace_detection
+from detection import workspace_detection
 
-# AI = workspace_detection()
+AI = workspace_detection()
 
 app = Flask(__name__)
 CORS(app)
 
-# cap = cv2.VideoCapture(0)
-# cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320) 
-# cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 
 ROI = [] 
 ROI_FRAME = {} 
@@ -81,7 +78,7 @@ def generate_roi_stream(idx):
     while True:
         frame = ROI_FRAME.get(idx)
         if frame is not None:
-            # frame = AI.detect(frame)["frame"]
+            frame = AI.detect(frame)["frame"]
             ret, buffer = cv2.imencode('.jpg', frame)
             if ret:
                 yield (b'--frame\r\n'
