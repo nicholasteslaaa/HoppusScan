@@ -4,7 +4,7 @@ from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
 from detection import workspace_detection
 
-AI = workspace_detection()
+# AI = workspace_detection()
 
 app = Flask(__name__)
 CORS(app)
@@ -29,14 +29,10 @@ def generate_frame():
         # Process ROIs
         # We use a temporary dict to avoid flickering during the loop
         new_roi_frames = {}
-        for idx, (minX, minY, maxX, maxY) in enumerate(ROI):
-            # Ensure coordinates are within frame boundaries to prevent crash
-            x1, y1 = max(0, minX), max(0, minY)
-            x2, y2 = min(w, maxX), min(h, maxY)
-            
-            if x2 > x1 and y2 > y1:
-                cropped = frame[y1:y2, x1:x2].copy()
-                new_roi_frames[idx] = cropped
+        for idx in range(len(ROI)):
+            minX, minY, maxX, maxY = ROI[idx]
+            cropped = frame[minY:maxY, minX:maxX].copy()
+            new_roi_frames[idx] = cropped
         
         # Update the global dict once
         global ROI_FRAME
@@ -50,7 +46,7 @@ def generate_frame():
         cv2.putText(frame, f"FPS: {int(fps)}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         cv2.putText(frame, f"ROIs Active: {len(ROI)}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-        frame = AI.detect(frame)["frame"]
+        # frame = AI.detect(frame)["frame"]
         ret, buffer = cv2.imencode('.jpg', frame)
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -60,7 +56,7 @@ def generate_roi_stream(idx):
     while True:
         frame = ROI_FRAME.get(idx)
         if frame is not None:
-            frame = AI.detect(frame)["frame"]
+            # frame = AI.detect(frame)["frame"]
             ret, buffer = cv2.imencode('.jpg', frame)
             if ret:
                 yield (b'--frame\r\n'
