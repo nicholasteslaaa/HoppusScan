@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Image Annotator</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; background: #f0f2f5; padding: 20px; }
+        #canvas-container { position: relative; margin-top: 20px; border: 2px solid #444; background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.1); line-height: 0; max-height: 70vh; overflow: auto; }
+        canvas { cursor: crosshair; }
+        .controls { margin-top: 20px; width: 100%; max-width: 800px; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .results { margin-top: 10px; font-family: 'Courier New', monospace; background: #1e1e1e; color: #4af626; padding: 15px; border-radius: 4px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+        .btn-group { margin-top: 10px; }
+        button { padding: 8px 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+        button.clear { background: #dc3545; }
+        button:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+
+    <h2>Multi-Box Annotation Tool</h2>
+    <input type="file" id="imageLoader" accept="image/*">
+
+    <div id="canvas-container">
+        <canvas id="imageCanvas"></canvas>
+    </div>
+
+    <div class="controls">
+        <strong>Saved Annotations (JSON):</strong>
+        <div id="output" class="results">[]</div>
+        <div class="btn-group">
+            <button class="clear" onclick="clearAnnotations()">Clear All Boxes</button>
+            <button onclick="copyToClipboard()">Copy JSON</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('imageCanvas');
+        const ctx = canvas.getContext('2d');
+        const imageLoader = document.getElementById('imageLoader');
+        const output = document.getElementById('output');
+
+        let img = new Image();
+        let annotations = []; // Array to hold all boxes
+        let isDrawing = false;
+        let startX, startY;
+        let currentRect = null; // The box currently being dragged
+
+        imageLoader.addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    annotations = []; // Reset on new image
+                    draw();
+                    updateOutput();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (!img.src) return;
+            const pos = getMousePos(e);
+            startX = pos.x;
+            startY = pos.y;
+            isDrawing = true;
+            currentRect = { x1: startX, y1: startY, x2: startX, y2: startY };
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const pos = getMousePos(e);
+            
+            currentRect.x2 = pos.x;
+            currentRect.y2 = pos.y;
+
+            draw();
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            if (!isDrawing) return;
+            isDrawing = false;
+
+            // Only save if it's a real box (not just a click)
+            if (Math.abs(currentRect.x2 - currentRect.x1) > 2) {
+                // Normalize coordinates (min/max) so users can draw in any direction
+                annotations.push({
+                    x1: Math.round(Math.min(currentRect.x1, currentRect.x2)),
+                    y1: Math.round(Math.min(currentRect.y1, currentRect.y2)),
+                    x2: Math.round(Math.max(currentRect.x1, currentRect.x2)),
+                    y2: Math.round(Math.max(currentRect.y1, currentRect.y2))
+                });
+            }
+            currentRect = null;
+            draw();
+            updateOutput();
+        });
+
+        function getMousePos(e) {
+            const r = canvas.getBoundingClientRect();
+            return {
+                x: (e.clientX - r.left) * (canvas.width / r.width),
+                y: (e.clientY - r.top) * (canvas.height / r.height)
+            };
+        }
+
+        function draw() {
+            // 1. Clear and Redraw Base Image
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+
+            // 2. Draw all saved annotations
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 3;
+            annotations.forEach(box => {
+                ctx.strokeRect(box.x1, box.y1, box.x2 - box.x1, box.y2 - box.y1);
+            });
+
+            // 3. Draw current active box (in a different color)
+            if (isDrawing && currentRect) {
+                ctx.strokeStyle = "#ff0000"; 
+                ctx.strokeRect(
+                    currentRect.x1, 
+                    currentRect.y1, 
+                    currentRect.x2 - currentRect.x1, 
+                    currentRect.y2 - currentRect.y1
+                );
+            }
+        }
+
+        function updateOutput() {
+            // Maps the array of objects into a list of strings like "(10,20,100,200)"
+            const formattedList = annotations.map(box => 
+                `(${box.x1},${box.y1},${box.x2},${box.y2}),`
+            );
+            
+            // Join them with a newline for the display
+            output.innerText = formattedList.join('\n');
+            
+            // If empty, show a placeholder
+            if (annotations.length === 0) {
+                output.innerText = "No annotations yet...";
+            }
+        }
+
+        function clearAnnotations() {
+            annotations = [];
+            draw();
+            updateOutput();
+        }
+
+        function copyToClipboard() {
+            navigator.clipboard.writeText(output.innerText);
+            alert("Copied to clipboard!");
+        }
+    </script>
+</body>
+</html>
