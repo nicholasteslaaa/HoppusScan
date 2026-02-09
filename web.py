@@ -4,17 +4,17 @@ from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
 from detection import workspace_detection
 
-# AI = workspace_detection()
+AI = workspace_detection()
 
 app = Flask(__name__)
 CORS(app)
 
 cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640) # Increased resolution for better crops
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320) 
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 
-ROI = [] # Stores coordinate tuples: (minX, minY, maxX, maxY)
-ROI_FRAME = {} # Changed to dictionary to prevent index shifting issues
+ROI = [] 
+ROI_FRAME = {} 
 
 def generate_frame():
     prev_time = 0
@@ -24,21 +24,16 @@ def generate_frame():
             break
         
         frame = cv2.flip(frame, 1)
-        h, w, _ = frame.shape
         
-        # Process ROIs
-        # We use a temporary dict to avoid flickering during the loop
         new_roi_frames = {}
         for idx in range(len(ROI)):
             minX, minY, maxX, maxY = ROI[idx]
             cropped = frame[minY:maxY, minX:maxX].copy()
             new_roi_frames[idx] = cropped
         
-        # Update the global dict once
         global ROI_FRAME
         ROI_FRAME = new_roi_frames
 
-        # Stats for Main Feed
         curr_time = time.time()
         fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
         prev_time = curr_time
@@ -52,20 +47,18 @@ def generate_frame():
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 def generate_roi_stream(idx):
-    """Generator for specific ROI streams"""
     while True:
         frame = ROI_FRAME.get(idx)
         if frame is not None:
-            # frame = AI.detect(frame)["frame"]
+            frame = AI.detect(frame)["frame"]
             ret, buffer = cv2.imencode('.jpg', frame)
             if ret:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         else:
-            # If ROI doesn't exist yet, send a black frame or wait
             time.sleep(0.1)
-        time.sleep(0.03) # Limit ROI stream to ~30 FPS
-
+        time.sleep(0.03)
+        
 @app.route("/get_ROI", methods=["GET"])
 def get_ROI():
     chair_idx = request.args.get('chair_idx', type=int)
@@ -87,7 +80,6 @@ def add_ROI():
 @app.route("/pop_ROI", methods=["POST"])
 def pop_ROI():
     data = request.get_json()
-    # Simple logic: your frontend usually sends the index
     idx = data.get("index")
     if idx is not None and 0 <= idx < len(ROI):
         ROI.pop(idx)
@@ -99,5 +91,4 @@ def video_feed():
     return Response(generate_frame(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == "__main__":
-    # threaded=True is vital for handling multiple streams
     app.run(host='0.0.0.0', port=8000, threaded=True)
