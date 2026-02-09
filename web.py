@@ -1,28 +1,59 @@
 import cv2
 import time
+import threading
 from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
-from detection import workspace_detection
+# from detection import workspace_detection
 
-AI = workspace_detection()
+# AI = workspace_detection()
 
 app = Flask(__name__)
 CORS(app)
 
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320) 
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+# cap = cv2.VideoCapture(0)
+# cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320) 
+# cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 
 ROI = [] 
 ROI_FRAME = {} 
 
+
+
+
+class CameraStream:
+    def __init__(self):
+        self.cap = cv2.VideoCapture(0)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+        self.ret, self.frame = self.cap.read()
+        self.stopped = False
+        self.lock = threading.Lock()
+
+    def start(self):
+        threading.Thread(target=self.update, args=(), daemon=True).start()
+        return self
+
+    def update(self):
+        while not self.stopped:
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.frame = cv2.flip(frame, 1)
+            time.sleep(0.01) # Small delay to yield CPU
+
+    def get_frame(self):
+        with self.lock:
+            return self.frame.copy()
+
+# Initialize the global camera thread
+cam_manager = CameraStream().start()
+
 def generate_frame():
     prev_time = 0
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
+        frame = cam_manager.get_frame()
+
+
         frame = cv2.flip(frame, 1)
         
         new_roi_frames = {}
@@ -50,7 +81,7 @@ def generate_roi_stream(idx):
     while True:
         frame = ROI_FRAME.get(idx)
         if frame is not None:
-            frame = AI.detect(frame)["frame"]
+            # frame = AI.detect(frame)["frame"]
             ret, buffer = cv2.imencode('.jpg', frame)
             if ret:
                 yield (b'--frame\r\n'
@@ -80,11 +111,21 @@ def add_ROI():
 @app.route("/pop_ROI", methods=["POST"])
 def pop_ROI():
     data = request.get_json()
-    idx = data.get("index")
-    if idx is not None and 0 <= idx < len(ROI):
-        ROI.pop(idx)
-        return jsonify({"status": "removed"})
-    return jsonify({"error": "invalid index"}), 400
+    bbox = data["ROI"]
+
+    for i in range(len(ROI)):
+        x1,y1,x2,y2 = ROI[i]
+        if (bbox == f"{x1} {y1} {x2} {y2}"):
+            ROI.pop(i)
+            ROI_FRAME.pop(i)
+        
+    
+    return jsonify({"status": "success", "index": len(ROI) - 1})
+
+@app.route("/list_ROIs", methods=["GET"])
+def list_ROIs():
+    # Returns a list of strings "x1 y1 x2 y2"
+    return jsonify({"rois": [f"{r[0]} {r[1]} {r[2]} {r[3]}" for r in ROI]})
 
 @app.route('/cam_feed')
 def video_feed():
