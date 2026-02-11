@@ -3,6 +3,7 @@ import time
 import threading
 from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
+from database_manager import db_manager
 from detection import workspace_detection
 
 AI = workspace_detection()
@@ -11,7 +12,9 @@ app = Flask(__name__)
 CORS(app)
 
 
-ROI = [] 
+
+db = db_manager()
+ROI = db.get_all_data_as_dictionary()
 
 class CameraStream:
     def __init__(self):
@@ -59,7 +62,7 @@ def generate_frame():
         cv2.putText(frame, f"FPS: {int(fps)}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         cv2.putText(frame, f"ROIs Active: {len(ROI)}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         
-        ret, buffer = cv2.imencode('.jpg', frame)
+        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
@@ -78,8 +81,8 @@ def generate_roi_stream(idx):
                 curr_time = new_time
                 
                 ROI[idx]["timer"] += delta_time
-            
-            ret, buffer = cv2.imencode('.jpg', frame)
+                db.update_timer(ROI[idx]["bbox"],ROI[idx]["timer"])
+            ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
             if ret:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
@@ -108,6 +111,7 @@ def add_ROI():
     try:
         coords = tuple(map(int, data["ROI"].strip().split(" ")))
         ROI.append({"bbox" : coords,"frame":None, "timer":0})
+        db.insert_data(coords,0)
         return jsonify({"status": "success", "index": len(ROI) - 1})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -115,14 +119,18 @@ def add_ROI():
 @app.route("/pop_ROI", methods=["POST"])
 def pop_ROI():
     data = request.get_json()
-    bbox = data["ROI"]
+    bbox_str = data["ROI"] # Expected: "10 20 100 200"
     
+    global ROI
     for i in range(len(ROI)):
-        x1,y1,x2,y2 = ROI[i]["bbox"]
-        if (bbox == f"{x1} {y1} {x2} {y2}"):
+        x1, y1, x2, y2 = ROI[i]["bbox"]
+        current_str = f"{x1} {y1} {x2} {y2}"
+        if bbox_str == current_str:
+            db.pop_data(ROI[i]["bbox"]) # Remove the extra '0' here
             ROI.pop(i)
-        
-    return jsonify({"status": "success", "index": len(ROI) - 1})
+            return jsonify({"status": "success"})
+            
+    return jsonify({"status": "not found"}), 404
 
 @app.route("/list_ROIs", methods=["GET"])
 def list_ROIs():
