@@ -1,49 +1,21 @@
 import cv2
 import time
-import threading
 from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
 from database_manager import db_manager
-from detection import workspace_detection
+from detection import workspace_detection,CameraStream
+import signal
+import sys
 
 AI = workspace_detection()
 
 app = Flask(__name__)
 CORS(app)
 
-
-
 db = db_manager()
 ROI = db.get_all_data_as_dictionary()
 
-class CameraStream:
-    def __init__(self):
-        self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-        self.ret, self.frame = self.cap.read()
-        self.stopped = False
-        self.lock = threading.Lock()
-
-    def start(self):
-        threading.Thread(target=self.update, args=(), daemon=True).start()
-        return self
-
-    def update(self):
-        while not self.stopped:
-            ret, frame = self.cap.read()
-            if ret:
-                with self.lock:
-                    self.frame = cv2.flip(frame, 1)
-            time.sleep(0.01) # Small delay to yield CPU
-
-    def get_frame(self):
-        with self.lock:
-            return self.frame.copy()
-
-# Initialize the global camera thread
 cam_manager = CameraStream().start()
-
 def generate_frame():
     prev_time = 0
     global ROI
@@ -71,23 +43,25 @@ def generate_roi_stream(idx):
     
     curr_time = time.time()
     while True:
-        frame = ROI[idx]["frame"]
-        if frame is not None:
-            detection = AI.detect(frame)
-            frame = detection["frame"]
-            if (detection["people"] > 0):
-                new_time = time.time()
-                delta_time = new_time - curr_time
-                curr_time = new_time
-                
-                ROI[idx]["timer"] += delta_time
-                db.update_timer(ROI[idx]["bbox"],ROI[idx]["timer"])
-            ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
-            if ret:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        else:
-            time.sleep(0.1)
+        if (len(ROI) > idx):
+            frame = ROI[idx]["frame"]
+            if frame is not None:
+                detection = AI.detect(frame)
+                frame = detection["frame"]
+                if (detection["people"] > 0):
+                    new_time = time.time()
+                    delta_time = new_time - curr_time
+                    curr_time = new_time
+                    
+                    ROI[idx]["timer"] += delta_time
+                    db.update_timer(ROI[idx]["bbox"],ROI[idx]["timer"])
+                if frame.shape[0] > 0 and frame.shape[1] > 0:
+                    ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+                    if ret:
+                        yield (b'--frame\r\n'
+                            b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            else:
+                time.sleep(0.1)
         time.sleep(0.03)
         
 @app.route("/get_ROI", methods=["GET"])
@@ -119,14 +93,14 @@ def add_ROI():
 @app.route("/pop_ROI", methods=["POST"])
 def pop_ROI():
     data = request.get_json()
-    bbox_str = data["ROI"] # Expected: "10 20 100 200"
+    bbox_str = data["ROI"]
     
     global ROI
     for i in range(len(ROI)):
         x1, y1, x2, y2 = ROI[i]["bbox"]
         current_str = f"{x1} {y1} {x2} {y2}"
         if bbox_str == current_str:
-            db.pop_data(ROI[i]["bbox"]) # Remove the extra '0' here
+            db.pop_data(ROI[i]["bbox"])
             ROI.pop(i)
             return jsonify({"status": "success"})
             
@@ -134,12 +108,24 @@ def pop_ROI():
 
 @app.route("/list_ROIs", methods=["GET"])
 def list_ROIs():
-    # Returns a list of strings "x1 y1 x2 y2"
     return jsonify({"rois": [f"{r['bbox'][0]} {r['bbox'][1]} {r['bbox'][2]} {r['bbox'][3]}" for r in ROI]})
 
 @app.route('/cam_feed')
 def video_feed():
     return Response(generate_frame(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
+def handle_exit(sig, frame):
+    print(f"\nSignal {sig} received. Cleaning up...")
+    try:
+        cam_manager.stop() # Ensure this method calls self.cap.release()
+    except:
+        pass
+    sys.exit(0)
+
+# Register handlers for Ctrl+C (SIGINT) and Ctrl+Z (SIGTSTP)
+signal.signal(signal.SIGINT, handle_exit)
+signal.signal(signal.SIGTSTP, handle_exit)
+
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=8000, threaded=True)
+    app.run(host='0.0.0.0', port=8000, threaded=True,use_reloader=False)

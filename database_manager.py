@@ -16,9 +16,22 @@ class db_manager:
     
         
     def pop_data(self,box):
+        # Convert list/tuple of ints to the string format stored in DB
         str_box = " ".join([str(i) for i in box])
-        self.cursor.execute(f"DELETE FROM chairs WHERE bbox = '{str_box}'")
-        self.connection.commit()
+        
+        # 1. Check if the box exists
+        self.cursor.execute("SELECT 1 FROM chairs WHERE bbox = ?", (str_box,))
+        exists = self.cursor.fetchone()
+        
+        if exists:
+            # 2. If it exists, delete it
+            self.cursor.execute("DELETE FROM chairs WHERE bbox = ?", (str_box,))
+            self.connection.commit()
+            print(f"Successfully deleted ROI: {str_box}")
+            return True
+        else:
+            print(f"ROI not found in database: {str_box}")
+            return False
         
     def update_timer(self,box,time):
         str_box = " ".join([str(i) for i in box])

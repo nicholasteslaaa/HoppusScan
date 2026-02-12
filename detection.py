@@ -1,6 +1,35 @@
 import cv2
 import time
 from ultralytics import YOLO
+import threading
+
+class CameraStream:
+    def __init__(self):
+        self.cap = cv2.VideoCapture(0)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+        self.ret, self.frame = self.cap.read()
+        self.stopped = False
+        self.lock = threading.Lock()
+
+    def start(self):
+        threading.Thread(target=self.update, args=(), daemon=True).start()
+        return self
+
+    def update(self):
+        while not self.stopped:
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.frame = cv2.flip(frame, 1)
+            time.sleep(0.01)
+
+    def get_frame(self):
+        with self.lock:
+            return self.frame.copy()
+    
+    def release_cam(self):
+        self.cap.release()
 
     
 class workspace_detection:
