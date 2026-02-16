@@ -6,6 +6,7 @@ from database_manager import db_manager
 from detection import workspace_detection,CameraStream
 import signal
 import sys
+import numpy as np
 
 app = Flask(__name__)
 CORS(app)
@@ -50,47 +51,69 @@ def generate_frame():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-def generate_roi_stream(idx):
+
+def pad_to_size(img, target_w, target_h):
+    """Adds black padding to center the original frame without resizing."""
+    h, w = img.shape[:2]
+    top = (target_h - h) // 2
+    bottom = target_h - h - top
+    left = (target_w - w) // 2
+    right = target_w - w - left
+    # Border types: BORDER_CONSTANT uses the [0,0,0] black color
+    return cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+
+def generate_roi_stream():
     global ROI
     
+    COLS = 4
     last_time = time.perf_counter()
     presence_accumulator = 0.0
     
+    max_w, max_h = 0, 0
     while True:
         curr_time = time.perf_counter()
         dt = curr_time - last_time
         last_time = curr_time
-        
-        if (len(ROI) > idx):
-            frame = ROI[idx]["frame"]
-            if frame is not None:
-                detection = AI.detect(frame)
-                frame = detection["frame"]
-                if (detection["people"] > 0):
+
+        rois = []
+
+        for item in ROI:
+            if item["frame"] is not None and item["frame"].size > 0:
+                scanned_frame = AI.detect(item["frame"])
+                if (scanned_frame["people"] > 0):
                     presence_accumulator += dt
                     if (presence_accumulator >= 1.0):
-                        ROI[idx]["timer"] += dt
+                        item["timer"] += dt
                         presence_accumulator -= 1.0 
-                        db.update_timer(ROI[idx]["bbox"],ROI[idx]["timer"])
-                        
-                if frame.shape[0] > 0 and frame.shape[1] > 0:
-                    ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
-                    if ret:
-                        yield (b'--frame\r\n'
-                            b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-            else:
-                time.sleep(0.1)
-        time.sleep(0.03)
+                print(presence_accumulator)
+                cv2.putText(scanned_frame["frame"], f"Timr: {int(item['timer'])}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                rois.append(scanned_frame["frame"])
+                # Track largest dimensions to create a uniform grid
+                max_h = max(max_h, item["frame"].shape[0])
+                max_w = max(max_w, item["frame"].shape[1])
 
+        if rois:
+            grid_rows = []
+            for i in range(0, len(rois), COLS):
+                chunk = rois[i : i + COLS]
+                padded_chunk = [pad_to_size(c, max_w, max_h) for c in chunk]
+                while len(padded_chunk) < COLS:
+                    padded_chunk.append(np.zeros((max_h, max_w, 3), dtype=np.uint8))
+                grid_rows.append(cv2.hconcat(padded_chunk))
+
+            final_grid = cv2.vconcat(grid_rows)
+            
+            ret, buffer = cv2.imencode('.jpg', final_grid, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+            if ret:
+                yield (b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        time.sleep(0.05)
 
         
 @app.route("/get_ROI", methods=["GET"])
 def get_ROI():
-    chair_idx = request.args.get('chair_idx', type=int)
-    if chair_idx is not None:
-        return Response(generate_roi_stream(chair_idx),
+    return Response(generate_roi_stream(),
                         mimetype='multipart/x-mixed-replace; boundary=frame')
-    return "Missing chair_idx", 400
 
 @app.route("/get_ROI_timer", methods=["GET"])
 def get_ROI_timer():

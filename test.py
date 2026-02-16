@@ -24,7 +24,9 @@ def pad_to_size(img, target_w, target_h):
 
 last_time = time.perf_counter()
 presence_accumulator = 0.0
+
 all_items = db.get_all_data_as_dictionary()
+max_w, max_h = 0, 0
 while True:
     curr_time = time.perf_counter()
     dt = curr_time - last_time
@@ -36,7 +38,6 @@ while True:
     if not ret: break
 
     raw_crops = []
-    max_w, max_h = 0, 0
 
     for item in all_items:
         x_min, y_min, x_max, y_max = item["bbox"]
@@ -59,23 +60,15 @@ while True:
             max_h = max(max_h, crop.shape[0])
             max_w = max(max_w, crop.shape[1])
 
-    # 2. Process Grid
     if raw_crops:
         grid_rows = []
         for i in range(0, len(raw_crops), COLS):
             chunk = raw_crops[i : i + COLS]
-            
-            # Pad each crop in this chunk to match the max dimensions
             padded_chunk = [pad_to_size(c, max_w, max_h) for c in chunk]
-            
-            # Fill remaining slots in the last row with empty black frames
             while len(padded_chunk) < COLS:
                 padded_chunk.append(np.zeros((max_h, max_w, 3), dtype=np.uint8))
-            
-            # Combine horizontally
             grid_rows.append(cv2.hconcat(padded_chunk))
 
-        # Combine all rows vertically
         final_grid = cv2.vconcat(grid_rows)
         cv2.imshow("HoppusScan Original Scale Grid", final_grid)
 
