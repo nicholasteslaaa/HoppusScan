@@ -7,8 +7,6 @@ from detection import workspace_detection,CameraStream
 import signal
 import sys
 
-AI = workspace_detection()
-
 app = Flask(__name__)
 CORS(app)
 
@@ -16,6 +14,17 @@ db = db_manager()
 ROI = db.get_all_data_as_dictionary()
 
 cam_manager = CameraStream().start()
+
+# Create a placeholder
+AI = None
+
+@app.before_first_request
+def load_model():
+    global AI
+    if AI is None:
+        print("Loading AI Model...")
+        AI = workspace_detection()
+        
 def generate_frame():
     prev_time = 0
     global ROI
@@ -31,30 +40,39 @@ def generate_frame():
         fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
         prev_time = curr_time
         
-        cv2.putText(frame, f"FPS: {int(fps)}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        cv2.putText(frame, f"ROIs Active: {len(ROI)}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        annotated_frame = AI.detect(frame.copy())
+        cv2.putText(annotated_frame["frame"], f"FPS: {int(fps)}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        cv2.putText(annotated_frame["frame"], f"ROIs Active: {len(ROI)}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        cv2.putText(annotated_frame["frame"], f"Person Detected: {annotated_frame['people']}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         
-        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        
+        ret, buffer = cv2.imencode('.jpg', annotated_frame["frame"], [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 def generate_roi_stream(idx):
     global ROI
     
-    curr_time = time.time()
+    last_time = time.perf_counter()
+    presence_accumulator = 0.0
+    
     while True:
+        curr_time = time.perf_counter()
+        dt = curr_time - last_time
+        last_time = curr_time
+        
         if (len(ROI) > idx):
             frame = ROI[idx]["frame"]
             if frame is not None:
                 detection = AI.detect(frame)
                 frame = detection["frame"]
                 if (detection["people"] > 0):
-                    new_time = time.time()
-                    delta_time = new_time - curr_time
-                    curr_time = new_time
-                    
-                    ROI[idx]["timer"] += delta_time
-                    db.update_timer(ROI[idx]["bbox"],ROI[idx]["timer"])
+                    presence_accumulator += dt
+                    if (presence_accumulator >= 1.0):
+                        ROI[idx]["timer"] += dt
+                        presence_accumulator -= 1.0 
+                        db.update_timer(ROI[idx]["bbox"],ROI[idx]["timer"])
+                        
                 if frame.shape[0] > 0 and frame.shape[1] > 0:
                     ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
                     if ret:
@@ -63,6 +81,8 @@ def generate_roi_stream(idx):
             else:
                 time.sleep(0.1)
         time.sleep(0.03)
+
+
         
 @app.route("/get_ROI", methods=["GET"])
 def get_ROI():

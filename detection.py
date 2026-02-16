@@ -36,13 +36,12 @@ class workspace_detection:
     def __init__(self,model_path:str = 'yolov8n.engine') -> None:
         self.model = YOLO(model_path, task="detect")
     
-    def detect(self,roi_frame)->dict:
+    def detect(self,frame)->dict:
         # Create a copy so we don't draw on the original frame
-        draw_frame = roi_frame.copy() 
+        draw_frame = frame.copy() 
         
         num_of_people = 0
-        # Run prediction on the roi_frame (original)
-        for results in self.model.predict(source=roi_frame, stream=True, device=0, imgsz=320, verbose=False):
+        for results in self.model.predict(source=frame, stream=True, device=0, imgsz=320, verbose=False):
             for r in results:
                 boxes = r.boxes
                 if boxes is not None:
