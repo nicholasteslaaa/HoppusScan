@@ -41,18 +41,18 @@ class workspace_detection:
         draw_frame = frame.copy() 
         
         num_of_people = 0
-        # for results in self.model.predict(source=frame, stream=True, device=0, imgsz=320, verbose=False):
-        #     for r in results:
-        #         boxes = r.boxes
-        #         if boxes is not None:
-        #             for cls, box in zip(boxes.cls, boxes.xyxy):
-        #                 if int(cls) == 0: # If person/object class matches
-        #                     # Draw ONLY on the copy
-        #                     num_of_people += 1
-        #                     cv2.rectangle(draw_frame, 
-        #                                 (int(box[0]), int(box[1])), 
-        #                                 (int(box[2]), int(box[3])), 
-        #                                 (0, 255, 255), 2)
+        for results in self.model.predict(source=frame, stream=True, device=0, imgsz=320, verbose=False):
+            for r in results:
+                boxes = r.boxes
+                if boxes is not None:
+                    for cls, box in zip(boxes.cls, boxes.xyxy):
+                        if int(cls) == 0: # If person/object class matches
+                            # Draw ONLY on the copy
+                            num_of_people += 1
+                            cv2.rectangle(draw_frame, 
+                                        (int(box[0]), int(box[1])), 
+                                        (int(box[2]), int(box[3])), 
+                                        (0, 255, 255), 2)
         return {"frame":draw_frame,"people":num_of_people}
     
     def get_center_box(self,xy_1:tuple,xy_2:tuple) -> tuple:
