@@ -79,7 +79,7 @@ def generate_roi_stream():
                         item["timer"] += dt
                         presence_accumulator = 0.0
                         db.update_timer(item["bbox"],item["timer"])
-                cv2.putText(scanned_frame["frame"], f"Timer: {'%.2f'%item['timer']}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                # cv2.putText(scanned_frame["frame"], f"Timer: {'%.2f'%item['timer']}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                 rois.append(scanned_frame["frame"])
                 # Track largest dimensions to create a uniform grid
                 max_h = max(max_h, item["frame"].shape[0])

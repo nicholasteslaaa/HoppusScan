@@ -11,6 +11,7 @@
             --accent: #22d3ee;
             --danger: #f43f5e;
             --text: #f8fafc;
+            --success: #10b981;
         }
 
         body {
@@ -24,7 +25,6 @@
             align-items: center;
         }
 
-        /* Container for the side-by-side or stacked view */
         .dashboard {
             display: flex;
             flex-direction: column;
@@ -49,53 +49,56 @@
             border-radius: 8px;
             overflow: hidden;
             border: 2px solid #334155;
-        }
-
-        #main-feed { width: 640px; height: 480px; background: #000; }
-        #draw-canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
-
-        /* The Grid View Container */
-        .roi-monitor {
-            width: 100%;
-            overflow-x: auto;
-            text-align: center;
-        }
-
-        #roi-grid-image {
-            max-width: 100%;
-            border: 2px solid var(--accent);
-            border-radius: 8px;
             background: #000;
         }
 
+        #main-feed { width: 640px; height: auto; display: block; }
+        #draw-canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+
         .controls {
             margin-top: 20px;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
         }
 
         .roi-tag {
-            background: #334155;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 0.8rem;
+            background: #0f172a;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid var(--accent);
             display: flex;
-            align-items: center;
-            gap: 10px;
+            flex-direction: column;
+            gap: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
+
+        .roi-info { display: flex; justify-content: space-between; align-items: center; }
+        
+        .timer-display {
+            font-family: 'Courier New', monospace;
+            color: var(--success);
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .bbox-text { font-size: 0.75rem; color: #94a3b8; }
 
         .btn-mini-delete {
             background: var(--danger);
             border: none;
             color: white;
             cursor: pointer;
-            border-radius: 3px;
-            padding: 2px 6px;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.8rem;
         }
+
+        .roi-monitor { width: 100%; text-align: center; }
+        #roi-grid-image { max-width: 100%; border-radius: 8px; background: #000; }
     </style>
 </head>
-<body onload="syncROIs()">
+<body onload="init()">
 
     <h1>AI Workspace Dashboard</h1>
 
@@ -103,11 +106,9 @@
         <div class="section">
             <h2>1. Define Workspaces</h2>
             <div class="stream-container">
-                <img id="main-feed" src="http://192.168.1.2:8000/cam_feed">
+                <img id="main-feed" src="http://192.168.100.216:8000/cam_feed">
                 <canvas id="draw-canvas"></canvas>
             </div>
-            <p style="color: #94a3b8;">Click and drag on the camera feed to add a new monitoring zone.</p>
-            
             <div id="roi-list" class="controls">
                 </div>
         </div>
@@ -115,7 +116,7 @@
         <div class="section">
             <h2>2. Live ROI Grid Monitor</h2>
             <div class="roi-monitor">
-                <img id="roi-grid-image" src="http://192.168.1.2:8000/get_ROI">
+                <img id="roi-grid-image" src="http://192.168.100.216:8000/get_ROI">
             </div>
         </div>
     </div>
@@ -123,35 +124,44 @@
     <script>
         const canvas = document.getElementById('draw-canvas');
         const ctx = canvas.getContext('2d');
-        const API = "http://192.168.1.2:8000";
-        const SCALE = 320 / 640;
-
-        canvas.width = 640;
-        canvas.height = 480;
+        const img = document.getElementById('main-feed');
+        const API = "http://192.168.100.216:8000";
 
         let drawing = false;
         let startX, startY;
+
+        function init() {
+            canvas.width = img.clientWidth;
+            canvas.height = img.clientHeight;
+            syncROIs();
+            // Auto-refresh the ROI list every 1 second to update timers
+            setInterval(syncROIs, 1000);
+        }
 
         async function syncROIs() {
             try {
                 const res = await fetch(`${API}/list_ROIs`);
                 const data = await res.json();
                 const list = document.getElementById('roi-list');
-                list.innerHTML = '';
                 
-                data.rois.forEach(roiStr => {
-                    const tag = document.createElement('div');
-                    tag.className = 'roi-tag';
-                    tag.innerHTML = `
-                        <span>ROI: ${roiStr}</span>
-                        <button class="btn-mini-delete" onclick="deleteROI('${roiStr}')">×</button>
+                // We use a temporary string to avoid flickering during the interval update
+                let htmlContent = '';
+                
+                data.rois.forEach(roi => {
+                    // format timer to 2 decimal places
+                    const timeValue = parseFloat(roi.timer).toFixed(2);
+                    
+                    htmlContent += `
+                        <div class="roi-tag">
+                            <div class="roi-info">
+                                <span class="timer-display">⏱ ${timeValue}s</span>
+                                <button class="btn-mini-delete" onclick="deleteROI('${roi.bbox}')">Remove</button>
+                            </div>
+                            <span class="bbox-text">Coords: ${roi.bbox}</span>
+                        </div>
                     `;
-                    list.appendChild(tag);
                 });
-
-                // Refresh the Grid stream to catch the change
-                const gridImg = document.getElementById('roi-grid-image');
-                gridImg.src = `${API}/get_ROI?t=${Date.now()}`;
+                list.innerHTML = htmlContent;
             } catch (err) { console.error("Sync Error:", err); }
         }
 
@@ -168,18 +178,22 @@
         canvas.onmouseup = async (e) => {
             if (!drawing) return;
             drawing = false;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const scaleX = img.naturalWidth / img.clientWidth;
+            const scaleY = img.naturalHeight / img.clientHeight;
 
-            const x1 = Math.round(Math.min(startX, e.offsetX) * SCALE);
-            const y1 = Math.round(Math.min(startY, e.offsetY) * SCALE);
-            const x2 = Math.round(Math.max(startX, e.offsetX) * SCALE);
-            const y2 = Math.round(Math.max(startY, e.offsetY) * SCALE);
+            const x1 = Math.round(Math.min(startX, e.offsetX) * scaleX);
+            const y1 = Math.round(Math.min(startY, e.offsetY) * scaleY);
+            const x2 = Math.round(Math.max(startX, e.offsetX) * scaleX);
+            const y2 = Math.round(Math.max(startY, e.offsetY) * scaleY);
+
+            if (Math.abs(x2 - x1) < 5) return;
 
             await fetch(`${API}/add_ROI`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ "ROI": `${x1} ${y1} ${x2} ${y2}` })
             });
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             syncROIs();
         };
 
