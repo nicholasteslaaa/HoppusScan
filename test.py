@@ -4,7 +4,7 @@ from database_manager import db_manager
 from detection import workspace_detection
 import time
 
-AI = workspace_detection()
+AI = workspace_detection("yolov8n.pt")
 
 db = db_manager()
 cap = cv2.VideoCapture(0)

@@ -2,6 +2,7 @@ import cv2
 import time
 from ultralytics import YOLO
 import threading
+import torch 
 
 class CameraStream:
     def __init__(self):
@@ -35,13 +36,14 @@ class CameraStream:
 class workspace_detection:
     def __init__(self,model_path:str = 'yolov8n.engine') -> None:
         self.model = YOLO(model_path, task="detect")
+        self.device = 0 if torch.cuda.is_available() else "cpu"
     
     def detect(self,frame)->dict:
         # Create a copy so we don't draw on the original frame
         draw_frame = frame.copy() 
         
         num_of_people = 0
-        for results in self.model.predict(source=frame, stream=True, device=0, imgsz=320, verbose=False):
+        for results in self.model.predict(source=frame, stream=True, device=self.device, imgsz=320, verbose=False):
             for r in results:
                 boxes = r.boxes
                 if boxes is not None:

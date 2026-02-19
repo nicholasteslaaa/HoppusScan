@@ -17,15 +17,8 @@ ROI = db.get_all_data_as_dictionary()
 cam_manager = CameraStream().start()
 
 # Create a placeholder
-AI = None
+AI = workspace_detection("yolov8n.pt")
 
-@app.before_first_request
-def load_model():
-    global AI
-    if AI is None:
-        print("Loading AI Model...")
-        AI = workspace_detection()
-        
 def generate_frame():
     prev_time = 0
     global ROI
@@ -41,7 +34,7 @@ def generate_frame():
         fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
         prev_time = curr_time
         
-        annotated_frame = AI.detect(frame.copy())
+        annotated_frame = AI.detect(frame)
         cv2.putText(annotated_frame["frame"], f"FPS: {int(fps)}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         cv2.putText(annotated_frame["frame"], f"ROIs Active: {len(ROI)}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         cv2.putText(annotated_frame["frame"], f"Person Detected: {annotated_frame['people']}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
@@ -151,7 +144,7 @@ def pop_ROI():
 
 @app.route("/list_ROIs", methods=["GET"])
 def list_ROIs():
-    return jsonify({"rois": [f"{r['bbox'][0]} {r['bbox'][1]} {r['bbox'][2]} {r['bbox'][3]}" for r in ROI]})
+    return jsonify({"rois": [{"bbox":f"{r['bbox'][0]} {r['bbox'][1]} {r['bbox'][2]} {r['bbox'][3]}","timer":r["timer"]} for r in ROI]})
 
 @app.route('/cam_feed')
 def video_feed():
